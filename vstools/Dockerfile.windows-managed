@@ -1,0 +1,41 @@
+# escape=`
+
+ARG JAVA_HOME=
+
+FROM jenkins4eval/jnlp-agent:latest-windows as jnlp
+
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+
+# we use sdk:3.5 because some tools require 3.5
+FROM mcr.microsoft.com/dotnet/framework/sdk:3.5
+
+ARG VS_TOOLS_VERSION=16
+ARG VS_TOOLS_INSTALLPATH="C:\BuildTools"
+
+RUN [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 ; `
+    Invoke-WebRequest $('https://aka.ms/vs/{0}/release/channel' -f $env:VS_TOOLS_VERSION) -OutFile C:\VisualStudio.chman -UseBasicParsing ; `
+    Invoke-WebRequest $('https://aka.ms/vs/{0}/release/vs_buildtools.exe' -f $env:VS_TOOLS_VERSION) -OutFile C:\vs_buildtools.exe -UseBasicParsing ; `
+    Start-Process -FilePath "C:\vs_buildtools.exe" -Wait -PassThru -ArgumentList "--quiet", "--wait", "--norestart", "--nocache", `
+        "--channelUri", "C:\VisualStudio.chman", `
+        "--installChannelUri", "C:\VisualStudio.chman", `
+        "--add", "Microsoft.VisualStudio.Workload.ManagedDesktopBuildTools", `
+        "--add", "Microsoft.Net.Component.3.5.DeveloperTools", `
+        "--add", "Microsoft.Net.ComponentGroup.4.6.2.DeveloperTools", `
+        "--add", "Microsoft.Net.ComponentGroup.TargetingPacks.Common", `
+        "--add", "Microsoft.VisualStudio.Component.TestTools.BuildTools", `
+        "--add", "Microsoft.VisualStudio.Component.Windows10SDK.17763.Desktop", `
+        "--remove", "Microsoft.VisualStudio.Component.Windows10SDK.10240", `
+        "--remove", "Microsoft.VisualStudio.Component.Windows10SDK.10586", `
+        "--remove", "Microsoft.VisualStudio.Component.Windows10SDK.14393", `
+        "--remove", "Microsoft.VisualStudio.Component.Windows81SDK", `
+        "--installPath", "$env:VS_TOOLS_INSTALLPATH" | Out-Null ; `
+    Remove-Item -Force C:\vs_buildtools.exe ; `
+    Remove-Item -Force C:\VisualStudio.chman ; `
+    setx /M PATH $('{0};{1}\vstools\MSBuild\Current\Bin;C:\openjdk-8\bin;C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x64' -f $env:PATH,$env:VS_TOOLS_INSTALLPATH) ; `
+    setx /M PATH JAVA_HOME 'C:\openjdk-8'
+
+COPY --from=jnlp C:/ProgramData/Jenkins/jenkins-agent.ps1 C:/ProgramData/Jenkins/jenkins-agent.ps1
+COPY --from=jnlp C:/ProgramData/Jenkins/agent.jar C:/ProgramData/Jenkins/agent.jar
+COPY --from=jnlp C:/openjdk-8 C:/openjdk-8
+
+ENTRYPOINT ["powershell.exe", "-f", "C:/ProgramData/Jenkins/jenkins-agent.ps1"]
